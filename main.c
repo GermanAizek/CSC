@@ -31,68 +31,91 @@ NTSTATUS CscCreateClose(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 
 NTSTATUS CscDeviceControl(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {
-    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
-    ULONG IoControlCode = IrpSp->Parameters.DeviceIoControl.IoControlCode;
-    ULONG InputBufferLength = IrpSp->Parameters.DeviceIoControl.InputBufferLength;
-    ULONG OutputBufferLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
-    PVOID Buffer = Irp->AssociatedIrp.SystemBuffer;
+    PIO_STACK_LOCATION IrpSp;
+    ULONG IoControlCode;
+    ULONG InputBufferLength;
+    ULONG OutputBufferLength;
+    PVOID Buffer;
     NTSTATUS Status = STATUS_SUCCESS;
     ULONG_PTR Information = 0;
 
     UNREFERENCED_PARAMETER(DeviceObject);
 
-    switch (IoControlCode) {
-    case IOCTL_CSC_USER_QUERY_ITEM:
-        if (Buffer && InputBufferLength >= sizeof(ULONG) && OutputBufferLength >= sizeof(CSC_STORE_ITEM_INFO)) {
-            ULONG ItemId = *(PULONG)Buffer;
-            Status = CscStoreQueryItem(ItemId, (PCSC_STORE_ITEM_INFO)Buffer);
-            if (NT_SUCCESS(Status)) {
-                Information = sizeof(CSC_STORE_ITEM_INFO);
-            }
-        } else {
-            Status = STATUS_INVALID_BUFFER_SIZE;
-        }
-        break;
+    if (!Irp) {
+        return STATUS_INVALID_PARAMETER;
+    }
 
-    case IOCTL_CSC_USER_QUERY_DATABASE:
-        if (Buffer && OutputBufferLength >= sizeof(CSC_DATABASE_INFO)) {
-            Status = CscStoreQueryDatabase((PCSC_DATABASE_INFO)Buffer);
-            if (NT_SUCCESS(Status)) {
-                Information = sizeof(CSC_DATABASE_INFO);
-            }
-        } else {
-            Status = STATUS_INVALID_BUFFER_SIZE;
-        }
-        break;
+    IrpSp = IoGetCurrentIrpStackLocation(Irp);
+    if (!IrpSp) {
+        Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+        Irp->IoStatus.Information = 0;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return STATUS_INVALID_PARAMETER;
+    }
 
-    case IOCTL_CSC_USER_SET_PIN:
-        if (Buffer && InputBufferLength >= sizeof(CSC_PIN_REQ)) {
-            PCSC_PIN_REQ PinReq = (PCSC_PIN_REQ)Buffer;
-            Status = CscStoreSetPin(PinReq->ItemId, PinReq->PinFlags);
-            if (NT_SUCCESS(Status)) {
-                Information = sizeof(CSC_PIN_REQ);
-            }
-        } else {
-            Status = STATUS_INVALID_BUFFER_SIZE;
-        }
-        break;
+    IoControlCode = IrpSp->Parameters.DeviceIoControl.IoControlCode;
+    InputBufferLength = IrpSp->Parameters.DeviceIoControl.InputBufferLength;
+    OutputBufferLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+    Buffer = Irp->AssociatedIrp.SystemBuffer;
 
-    case IOCTL_CSC_USER_QUERY_SECURITY:
-        if (Buffer && InputBufferLength >= sizeof(ULONG)) {
-            ULONG PrincipalId = *(PULONG)Buffer;
-            ULONG RequiredLength = 0;
-            Status = CscQuerySecurity(PrincipalId, Buffer, OutputBufferLength, &RequiredLength);
-            if (NT_SUCCESS(Status)) {
-                Information = RequiredLength;
+    // FIX: Wrap IOCTL dispatch in SEH to guard against unhandled memory faults and invalid buffers
+    __try {
+        switch (IoControlCode) {
+        case IOCTL_CSC_USER_QUERY_ITEM:
+            if (Buffer && InputBufferLength >= sizeof(ULONG) && OutputBufferLength >= sizeof(CSC_STORE_ITEM_INFO)) {
+                ULONG ItemId = *(PULONG)Buffer;
+                Status = CscStoreQueryItem(ItemId, (PCSC_STORE_ITEM_INFO)Buffer);
+                if (NT_SUCCESS(Status)) {
+                    Information = sizeof(CSC_STORE_ITEM_INFO);
+                }
+            } else {
+                Status = STATUS_INVALID_BUFFER_SIZE;
             }
-        } else {
-            Status = STATUS_INVALID_BUFFER_SIZE;
-        }
-        break;
+            break;
 
-    default:
-        Status = STATUS_INVALID_DEVICE_REQUEST;
-        break;
+        case IOCTL_CSC_USER_QUERY_DATABASE:
+            if (Buffer && OutputBufferLength >= sizeof(CSC_DATABASE_INFO)) {
+                Status = CscStoreQueryDatabase((PCSC_DATABASE_INFO)Buffer);
+                if (NT_SUCCESS(Status)) {
+                    Information = sizeof(CSC_DATABASE_INFO);
+                }
+            } else {
+                Status = STATUS_INVALID_BUFFER_SIZE;
+            }
+            break;
+
+        case IOCTL_CSC_USER_SET_PIN:
+            if (Buffer && InputBufferLength >= sizeof(CSC_PIN_REQ)) {
+                PCSC_PIN_REQ PinReq = (PCSC_PIN_REQ)Buffer;
+                Status = CscStoreSetPin(PinReq->ItemId, PinReq->PinFlags);
+                if (NT_SUCCESS(Status)) {
+                    Information = sizeof(CSC_PIN_REQ);
+                }
+            } else {
+                Status = STATUS_INVALID_BUFFER_SIZE;
+            }
+            break;
+
+        case IOCTL_CSC_USER_QUERY_SECURITY:
+            if (Buffer && InputBufferLength >= sizeof(ULONG)) {
+                ULONG PrincipalId = *(PULONG)Buffer;
+                ULONG RequiredLength = 0;
+                Status = CscQuerySecurity(PrincipalId, Buffer, OutputBufferLength, &RequiredLength);
+                if (NT_SUCCESS(Status)) {
+                    Information = RequiredLength;
+                }
+            } else {
+                Status = STATUS_INVALID_BUFFER_SIZE;
+            }
+            break;
+
+        default:
+            Status = STATUS_INVALID_DEVICE_REQUEST;
+            break;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Status = GetExceptionCode();
+        Information = 0;
     }
 
     Irp->IoStatus.Status = Status;
@@ -103,10 +126,30 @@ NTSTATUS CscDeviceControl(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 
 NTSTATUS CscFileSystemControl(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {
-    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
+    PIO_STACK_LOCATION IrpSp;
     UNREFERENCED_PARAMETER(DeviceObject);
 
-    return CscProcessFsctl(Irp, IrpSp);
+    if (!Irp) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    IrpSp = IoGetCurrentIrpStackLocation(Irp);
+    if (!IrpSp) {
+        Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+        Irp->IoStatus.Information = 0;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    // FIX: Wrap FileSystemControl dispatch in SEH to guard against unhandled exceptions
+    __try {
+        return CscProcessFsctl(Irp, IrpSp);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Irp->IoStatus.Status = GetExceptionCode();
+        Irp->IoStatus.Information = 0;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return GetExceptionCode();
+    }
 }
 
 NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING RegistryPath)
