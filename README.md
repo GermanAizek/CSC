@@ -19,17 +19,17 @@ Driver CSC.sys manages offline caching, synchronization, and local database stor
 
 Fixed vulnerabilities in opensource driver CSC.sys:
 
-- [ ] [LOLDrivers: CSC.sys](https://www.loldrivers.io/drivers/1c92e1bf-103b-4545-b242-e5a9858ec9c8/)
-  - Improper Address Validation in IOCTL / FSCTL with METHOD_NEITHER (CVE-2024-26229). Low-privilege users can pass arbitrary kernel addresses via Type3InputBuffer to overwrite kernel structures (such as KTHREAD->PreviousMode) and elevate privileges to NT AUTHORITY\SYSTEM (BYOVD, MITRE ATT&CK T1068).
+- [x] [LOLDrivers: CSC.sys](https://www.loldrivers.io/drivers/1c92e1bf-103b-4545-b242-e5a9858ec9c8/)
+  - Improper Address Validation in IOCTL / FSCTL with METHOD_NEITHER (CVE-2024-26229). Low-privilege users can pass arbitrary kernel addresses via Type3InputBuffer to overwrite kernel structures (such as KTHREAD->PreviousMode) and elevate privileges to NT AUTHORITY\SYSTEM (BYOVD, MITRE ATT&CK T1068). Fixed by enforcing administrative ACLs on device creation, validating user-mode address limits below MmHighestUserAddress, probing buffers with ProbeForRead/ProbeForWrite, and wrapping dispatch routines in SEH.
 
 Fixed no publish vulnerabilities and bugs which contributors to this project found:
 
-- [ ] Device deletion bypassed on symbolic link creation failure ([view code](main.c))
-- [ ] Arbitrary memory write and METHOD_NEITHER pointer handling in command 0x001401A3 ([view code](fsctl.c))
-- [ ] Cache store database memory corruption and out-of-bounds access in command 0x00140180 ([view code](store.c))
-- [ ] Unauthorized privilege escalation and credential spoofing in command 0x0014018C ([view code](security.c))
-- [ ] Unhandled exception and NULL pointer dereference in control dispatching ([view code](main.c))
-- [ ] Device creation with weak permissions ([view code](main.c))
+- [x] Device deletion bypassed on symbolic link creation failure ([view code](main.c))
+- [x] Arbitrary memory write and METHOD_NEITHER pointer handling in command 0x001401A3 ([view code](fsctl.c))
+- [x] Cache store database memory corruption and out-of-bounds access in command 0x00140180 ([view code](store.c))
+- [x] Unauthorized privilege escalation and credential spoofing in command 0x0014018C ([view code](security.c))
+- [x] Unhandled exception and NULL pointer dereference in control dispatching ([view code](main.c))
+- [x] Device creation with weak permissions ([view code](main.c))
 
 Authors:
 
