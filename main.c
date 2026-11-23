@@ -129,17 +129,24 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL]      = CscDeviceControl;
     DriverObject->MajorFunction[IRP_MJ_FILE_SYSTEM_CONTROL] = CscFileSystemControl;
 
+    UNICODE_STRING Sddl;
+
     RtlInitUnicodeString(&DeviceName, CSC_DEVICE_NAME);
     RtlInitUnicodeString(&SymlinkName, CSC_DOS_DEVICE_NAME);
 
-    // Initial open implementation: insecure device creation without DACL
-    Status = IoCreateDevice(
+    // FIX: Secure device creation to mitigate unprivileged access (LOLDrivers: CSC.sys, CVE-2024-26229 / 1c92e1bf-103b-4545-b242-e5a9858ec9c8)
+    // SDDL: D:P(A;;GA;;;SY)(A;;GA;;;BA) - Only SYSTEM and Administrators have access
+    RtlInitUnicodeString(&Sddl, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+
+    Status = IoCreateDeviceSecure(
         DriverObject,
         0,
         &DeviceName,
         CSC_DEVICE_TYPE,
-        0,
+        FILE_DEVICE_SECURE_OPEN,
         FALSE,
+        &Sddl,
+        &GUID_DEVCLASS_CSC,
         &g_CscDeviceObject
     );
 
@@ -149,6 +156,9 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
 
     Status = IoCreateSymbolicLink(&SymlinkName, &DeviceName);
     if (!NT_SUCCESS(Status)) {
+        // FIX: Clean up device object on symbolic link creation failure to prevent resource leak
+        IoDeleteDevice(g_CscDeviceObject);
+        g_CscDeviceObject = NULL;
         return Status;
     }
 
